@@ -1562,7 +1562,7 @@ if filter_confirmed:
     score_df.index = score_df.index + 1
 
     st.subheader("Destination Shortlist")
-    st.dataframe(score_df.head(shortlist_k), width='stretch')
+    st.dataframe(score_df.head(shortlist_k), use_container_width=True)
 
     # Get top city for selection
     top_city = {
@@ -2041,7 +2041,7 @@ else:
             })
         preview_df = pd.DataFrame(preview_data)
         preview_df.index = preview_df.index + 1
-        st.dataframe(preview_df, width='stretch')
+        st.dataframe(preview_df, use_container_width=True)
         
         st.markdown("### ✨ Features Available:")
         col1, col2, col3 = st.columns(3)

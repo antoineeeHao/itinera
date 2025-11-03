@@ -4,7 +4,6 @@ email = ""
 [server]
 headless = true
 enableCORS = false
-port = $PORT
 
 [theme]
 primaryColor = "#FF6B6B"
