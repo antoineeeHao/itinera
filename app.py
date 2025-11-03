@@ -1287,29 +1287,154 @@ def itinerary_to_markdown(city: str, start: date, end: date, total: float, break
 # Streamlit UI
 # -------------------------------
 
-st.set_page_config(page_title="ITINERA — Trip Composer", page_icon="✈️", layout="wide")
+st.set_page_config(
+    page_title="ITINERA — Trip Composer", 
+    page_icon="✈️", 
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
+
+# Mobile-friendly CSS
+st.markdown("""
+<style>
+    /* Mobile responsive design */
+    @media only screen and (max-width: 768px) {
+        .stApp > div {
+            padding-top: 1rem;
+            padding-left: 0.5rem;
+            padding-right: 0.5rem;
+        }
+        
+        .stButton > button {
+            width: 100%;
+            margin-bottom: 0.5rem;
+        }
+        
+        .stSelectbox > div {
+            width: 100%;
+        }
+        
+        .stNumberInput > div {
+            width: 100%;
+        }
+        
+        .stDateInput > div {
+            width: 100%;
+        }
+        
+        .stMultiSelect > div {
+            width: 100%;
+        }
+        
+        /* Make columns stack on mobile */
+        .element-container {
+            width: 100% !important;
+        }
+        
+        /* Adjust sidebar for mobile */
+        .css-1d391kg {
+            width: 100%;
+        }
+        
+        /* Better mobile typography */
+        h1 {
+            font-size: 1.8rem !important;
+            line-height: 1.2 !important;
+        }
+        
+        h2 {
+            font-size: 1.4rem !important;
+            line-height: 1.3 !important;
+        }
+        
+        h3 {
+            font-size: 1.2rem !important;
+            line-height: 1.3 !important;
+        }
+        
+        /* Improve button spacing on mobile */
+        .stButton {
+            margin-bottom: 0.5rem;
+        }
+        
+        /* Make dataframes scrollable on mobile */
+        .stDataFrame {
+            overflow-x: auto;
+        }
+        
+        /* Better mobile form layout */
+        .stForm {
+            padding: 1rem;
+        }
+    }
+    
+    /* Tablet styles */
+    @media only screen and (max-width: 1024px) and (min-width: 769px) {
+        .stApp > div {
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
+    }
+    
+    /* Touch-friendly buttons */
+    .stButton > button {
+        min-height: 44px;
+        padding: 0.5rem 1rem;
+    }
+    
+    /* Better spacing for mobile */
+    .metric-card {
+        margin-bottom: 1rem;
+    }
+    
+    /* Responsive images */
+    img {
+        max-width: 100%;
+        height: auto;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # --- Authentication UI ---
 def render_auth_ui():
-    """Render authentication UI in the top right corner"""
-    col1, col2, col3 = st.columns([6, 1, 1])
-    
-    with col2:
+    """Render authentication UI with mobile-friendly layout"""
+    # Use different layout for mobile vs desktop
+    if st.session_state.get('is_mobile', False):
+        # Mobile layout - stack buttons vertically
         if st.session_state.auth_logged_in:
-            if st.button("👤 " + st.session_state.auth_username, key="user_menu"):
+            if st.button("👤 " + st.session_state.auth_username, key="user_menu", use_container_width=True):
                 st.session_state.show_user_menu = not st.session_state.get('show_user_menu', False)
-        else:
-            if st.button("🔑 Login", key="login_button"):
-                st.session_state.show_login = True
-    
-    with col3:
-        if not st.session_state.auth_logged_in:
-            if st.button("📝 Sign Up", key="signup_button"):
-                st.session_state.show_signup = True
-        else:
-            if st.button("🚪 Logout", key="logout_button"):
+            if st.button("🚪 Logout", key="logout_button", use_container_width=True):
                 logout_user()
                 st.rerun()
+        else:
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔑 Login", key="login_button", use_container_width=True):
+                    st.session_state.show_login = True
+            with col2:
+                if st.button("📝 Sign Up", key="signup_button", use_container_width=True):
+                    st.session_state.show_signup = True
+    else:
+        # Desktop layout - horizontal
+        col1, col2, col3 = st.columns([6, 1, 1])
+        
+        with col2:
+            if st.session_state.auth_logged_in:
+                if st.button("👤 " + st.session_state.auth_username, key="user_menu"):
+                    st.session_state.show_user_menu = not st.session_state.get('show_user_menu', False)
+            else:
+                if st.button("🔑 Login", key="login_button"):
+                    st.session_state.show_login = True
+        
+        with col3:
+            if not st.session_state.auth_logged_in:
+                if st.button("📝 Sign Up", key="signup_button"):
+                    st.session_state.show_signup = True
+            else:
+                if st.button("🚪 Logout", key="logout_button"):
+                    logout_user()
+                    st.rerun()
 
 def render_login_form():
     """Render login form"""
@@ -1422,6 +1547,17 @@ if 'show_user_menu' not in st.session_state:
 
 st.title("ITINERA — Your Budget‑to‑Boarding Trip Composer ✈️")
 
+# Add mobile detection (simplified method using user agent would be ideal, but we'll use responsive design)
+# Initialize mobile state if not exists
+if 'is_mobile' not in st.session_state:
+    st.session_state.is_mobile = False
+
+# Toggle for testing mobile layout
+if st.checkbox("📱 Mobile View (for testing)", key="mobile_toggle"):
+    st.session_state.is_mobile = True
+else:
+    st.session_state.is_mobile = False
+
 # Render authentication UI
 render_auth_ui()
 
@@ -1506,6 +1642,60 @@ with st.sidebar:
     st.header("Advanced")
     shortlist_k = st.slider("Shortlist size", min_value=2, max_value=15, value=8)
     buffer = st.slider("Budget safety buffer", min_value=0.0, max_value=0.25, value=0.10, step=0.01)
+
+# Mobile-friendly input form (replaces sidebar on mobile)
+if st.session_state.get('is_mobile', False):
+    st.markdown("### 📝 Plan Your Trip")
+    with st.expander("Trip Details", expanded=True):
+        col1, col2 = st.columns(2)
+        today = date.today()
+        default_start = today + timedelta(days=10)
+        default_end = default_start + timedelta(days=4)
+        
+        with col1:
+            start_date = st.date_input("Start date", value=default_start, key="mobile_start")
+            budget = st.number_input("Total budget (€)", min_value=200, max_value=20000, value=1200, step=50, key="mobile_budget")
+        
+        with col2:
+            end_date = st.date_input("End date", value=default_end, min_value=start_date + timedelta(days=1), key="mobile_end")
+            luxury_level = st.selectbox(
+                "Travel Style",
+                options=["standard", "premium", "luxury"],
+                format_func=lambda x: {
+                    "standard": "🎒 Standard",
+                    "premium": "✨ Premium", 
+                    "luxury": "💎 Luxury"
+                }[x],
+                index=0,
+                key="mobile_luxury"
+            )
+        
+        prefs = st.multiselect("Preferences", options=PREFS, default=["foodie", "views"], key="mobile_prefs")
+        
+        # Show usage counter for non-logged users
+        if not st.session_state.auth_logged_in:
+            remaining_uses = MAX_FREE_USES - st.session_state.filter_usage_count
+            if remaining_uses > 0:
+                st.info(f"🆓 Free searches remaining: {remaining_uses}/{MAX_FREE_USES}")
+            else:
+                st.error(f"🚫 Free trial limit reached! Please register to continue.")
+        
+        # Check if user can use the filter
+        can_use_filter = st.session_state.auth_logged_in or st.session_state.filter_usage_count < MAX_FREE_USES
+        
+        if can_use_filter:
+            filter_confirmed = st.button("🔍 Find My Perfect Trip", type="primary", use_container_width=True, key="mobile_search")
+        else:
+            if st.button("🔍 Find My Perfect Trip", type="primary", use_container_width=True, disabled=False, key="mobile_search_disabled"):
+                st.session_state.show_registration_required = True
+                st.rerun()
+            filter_confirmed = False
+    
+    with st.expander("Advanced Options"):
+        shortlist_k = st.slider("Number of recommendations", min_value=2, max_value=15, value=8, key="mobile_shortlist")
+        buffer = st.slider("Budget safety buffer", min_value=0.0, max_value=0.25, value=0.10, step=0.01, key="mobile_buffer")
+    
+    st.divider()
 
 st.write("Give ITINERA a budget, dates, and travel style. It will recommend destinations and compose a balanced, cost‑aware plan with hiking trails, luxury options, and personalized experiences from our curated selection of 15 premium European destinations.")
 
@@ -1664,13 +1854,21 @@ if filter_confirmed:
                 st.markdown(f"**{pref.title()}**")
                 st.markdown(f"<span style='color: {color}'>{match_score}</span>", unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Walkability", f"{chosen['walkability']:.2f}")
-    with col2:
-        st.metric("Safety", f"{chosen['safety']:.2f}")
-    with col3:
-        st.metric("CO₂ (kg)", f"{chosen['co2_kg']}")
+    # Responsive metrics layout
+    if st.session_state.get('is_mobile', False):
+        # Mobile: Stack metrics vertically
+        st.metric("🚶 Walkability", f"{chosen['walkability']:.2f}")
+        st.metric("🛡️ Safety", f"{chosen['safety']:.2f}")
+        st.metric("🌱 CO₂ Impact", f"{chosen['co2_kg']} kg")
+    else:
+        # Desktop: Show metrics in columns
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Walkability", f"{chosen['walkability']:.2f}")
+        with col2:
+            st.metric("Safety", f"{chosen['safety']:.2f}")
+        with col3:
+            st.metric("CO₂ (kg)", f"{chosen['co2_kg']}")
 
     # Compose itinerary for selected city
     plan = compose_itinerary(best_city, start_date, end_date, prefs)
@@ -2044,7 +2242,20 @@ else:
         st.dataframe(preview_df, use_container_width=True)
         
         st.markdown("### ✨ Features Available:")
-        col1, col2, col3 = st.columns(3)
+        
+        # Responsive feature layout
+        if st.session_state.get('is_mobile', False):
+            # Mobile: Single column with clear sections
+            st.markdown("""
+            🎯 **Smart Recommendations** - AI-powered destination matching
+            
+            💰 **Budget Optimization** - Cost-aware trip planning
+            
+            🗺️ **Detailed Itineraries** - Day-by-day activity planning
+            """)
+        else:
+            # Desktop: Three columns
+            col1, col2, col3 = st.columns(3)
         with col1:
             st.markdown("""
             🎯 **Smart Recommendations** 
