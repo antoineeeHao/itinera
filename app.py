@@ -38,6 +38,15 @@ import pandas as pd
 import streamlit as st
 from dateutil import parser as dateparser
 
+# --- Real-time Flight Price Integration ---
+try:
+    from flight_prices import get_real_time_flight_price
+    _HAS_FLIGHT_API = True
+    print("✅ Real-time flight price API loaded successfully")
+except ImportError:
+    _HAS_FLIGHT_API = False
+    print("⚠️ Flight price API not available, using static prices")
+
 # --- User Authentication System ---
 USER_DB_FILE = "users.json"
 MAX_USERS = 5
@@ -815,20 +824,68 @@ def baseline_costs(dest: Dict, nights: int, start_date: date, luxury_level: str 
     """Calculate baseline costs based on luxury level
     luxury_level: 'standard', 'premium', 'luxury'
     """
-    # Flight price adjusted by season - use user's travel date, not current date
-    mk = month_key(start_date)
-    season_mod = dest.get("month_mod", {}).get(mk, 1.0)
+    # Try to get real-time flight prices first
+    city = dest.get("city", "")
+    country = dest.get("country", "")
     
+    if _HAS_FLIGHT_API and city and country:
+        try:
+            # Get real-time flight prices
+            departure_date_str = start_date.strftime("%Y-%m-%d")
+            real_time_prices = get_real_time_flight_price(city, country, departure_date_str, luxury_level)
+            
+            if real_time_prices:
+                # Use real-time prices if available
+                if luxury_level == "luxury":
+                    flight = real_time_prices.get("flight_price_luxury", dest["flight_price_luxury"])
+                elif luxury_level == "premium":
+                    flight = real_time_prices.get("flight_price_premium", dest["flight_price_premium"])
+                else:
+                    flight = real_time_prices.get("flight_price_base", dest["flight_price_base"])
+            else:
+                # Fallback to static prices with seasonal adjustment
+                mk = month_key(start_date)
+                season_mod = dest.get("month_mod", {}).get(mk, 1.0)
+                
+                if luxury_level == "luxury":
+                    flight = dest["flight_price_luxury"] * season_mod
+                elif luxury_level == "premium":
+                    flight = dest["flight_price_premium"] * season_mod
+                else:
+                    flight = dest["flight_price_base"] * season_mod
+                    
+        except Exception as e:
+            print(f"Error fetching real-time prices: {e}")
+            # Fallback to static prices
+            mk = month_key(start_date)
+            season_mod = dest.get("month_mod", {}).get(mk, 1.0)
+            
+            if luxury_level == "luxury":
+                flight = dest["flight_price_luxury"] * season_mod
+            elif luxury_level == "premium":
+                flight = dest["flight_price_premium"] * season_mod
+            else:
+                flight = dest["flight_price_base"] * season_mod
+    else:
+        # Use static prices with seasonal adjustment
+        mk = month_key(start_date)
+        season_mod = dest.get("month_mod", {}).get(mk, 1.0)
+        
+        if luxury_level == "luxury":
+            flight = dest["flight_price_luxury"] * season_mod
+        elif luxury_level == "premium":
+            flight = dest["flight_price_premium"] * season_mod
+        else:
+            flight = dest["flight_price_base"] * season_mod
+    
+    # Hotel and other costs remain the same
     if luxury_level == "luxury":
-        flight = dest["flight_price_luxury"] * season_mod
         hotel = dest["hotel_luxury"] * nights
         daily_misc = nights * (dest["daily_food_luxury"] + dest["daily_transit"] * 1.5)  # premium transport
     elif luxury_level == "premium":
-        flight = dest["flight_price_premium"] * season_mod
         hotel = dest["hotel_premium"] * nights
         daily_misc = nights * (dest["daily_food_premium"] + dest["daily_transit"] * 1.2)
     else:  # standard
-        flight = dest["flight_price_base"] * season_mod
         hotel = dest["hotel_per_night"] * nights
         daily_misc = nights * (dest["daily_food"] + dest["daily_transit"])
     
@@ -1877,6 +1934,12 @@ if filter_confirmed:
     fitted_plan, total_cost, breakdown = fit_to_budget(chosen, nights, plan, float(budget), start_date, luxury_level, buffer=float(buffer))
 
     st.subheader("Cost Overview")
+    
+    # Add real-time price indicator
+    if _HAS_FLIGHT_API:
+        st.info("✈️ **Real-time flight prices** - Prices are updated from live airline data when available")
+    else:
+        st.info("📊 **Market-based pricing** - Using current market rates with seasonal adjustments")
     
     # Create flight class mapping
     flight_class_info = {
