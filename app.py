@@ -820,10 +820,13 @@ def seasonality_factor(dest: Dict, start: date, end: date) -> float:
     return float(mod)
 
 
-def baseline_costs(dest: Dict, nights: int, start_date: date, luxury_level: str = "standard") -> Dict[str, float]:
-    """Calculate baseline costs based on luxury level
+def baseline_costs(dest: Dict, nights: int, start_date: date, luxury_level: str = "standard") -> Tuple[Dict[str, float], Dict[str, str]]:
+    """Calculate baseline costs based on luxury level and return flight info
     luxury_level: 'standard', 'premium', 'luxury'
+    Returns: (costs_dict, flight_info_dict)
     """
+    flight_info = {}
+    
     # Try to get real-time flight prices first
     city = dest.get("city", "")
     country = dest.get("country", "")
@@ -842,6 +845,16 @@ def baseline_costs(dest: Dict, nights: int, start_date: date, luxury_level: str 
                     flight = real_time_prices.get("flight_price_premium", dest["flight_price_premium"])
                 else:
                     flight = real_time_prices.get("flight_price_base", dest["flight_price_base"])
+                
+                # Extract flight info
+                flight_info = {
+                    "airline_code": real_time_prices.get("airline_code", ""),
+                    "airline_name": real_time_prices.get("airline_name", ""),
+                    "aircraft_code": real_time_prices.get("aircraft_code", ""),
+                    "data_source": real_time_prices.get("data_source", ""),
+                    "last_updated": real_time_prices.get("last_updated", ""),
+                    "route_info": real_time_prices.get("route_info", "")
+                }
             else:
                 # Fallback to static prices with seasonal adjustment
                 mk = month_key(start_date)
@@ -853,6 +866,8 @@ def baseline_costs(dest: Dict, nights: int, start_date: date, luxury_level: str 
                     flight = dest["flight_price_premium"] * season_mod
                 else:
                     flight = dest["flight_price_base"] * season_mod
+                    
+                flight_info = {"data_source": "Static Pricing (Seasonal Adjustment)"}
                     
         except Exception as e:
             print(f"Error fetching real-time prices: {e}")
@@ -866,6 +881,8 @@ def baseline_costs(dest: Dict, nights: int, start_date: date, luxury_level: str 
                 flight = dest["flight_price_premium"] * season_mod
             else:
                 flight = dest["flight_price_base"] * season_mod
+                
+            flight_info = {"data_source": "Static Pricing (API Error)"}
     else:
         # Use static prices with seasonal adjustment
         mk = month_key(start_date)
@@ -877,6 +894,8 @@ def baseline_costs(dest: Dict, nights: int, start_date: date, luxury_level: str 
             flight = dest["flight_price_premium"] * season_mod
         else:
             flight = dest["flight_price_base"] * season_mod
+            
+        flight_info = {"data_source": "Static Pricing (No API)"}
     
     # Hotel and other costs remain the same
     if luxury_level == "luxury":
@@ -895,12 +914,14 @@ def baseline_costs(dest: Dict, nights: int, start_date: date, luxury_level: str 
     elif luxury_level == "premium":
         pass_cost *= 1.4
     
-    return {
+    costs = {
         "flight": round(flight, 2),
         "hotel": round(hotel, 2),
         "daily_misc": round(daily_misc, 2),
         "attraction_pass": round(pass_cost, 2),
     }
+    
+    return costs, flight_info
 
 
 def co2_score(dest: Dict, prefs: List[str]) -> float:
@@ -914,7 +935,7 @@ def co2_score(dest: Dict, prefs: List[str]) -> float:
 
 
 def value_score(dest: Dict, budget: float, nights: int, start_date: date, luxury_level: str = "standard") -> float:
-    costs = baseline_costs(dest, nights, start_date, luxury_level)
+    costs, flight_info = baseline_costs(dest, nights, start_date, luxury_level)
     total = sum(costs.values())
     
     # Set budget limits based on luxury level
@@ -1210,7 +1231,7 @@ def compose_itinerary(city: str, start: date, end: date, prefs: List[str]) -> Li
 # -------------------------------
 
 def estimate_total_cost(dest: Dict, nights: int, itinerary: List[DayPlan], start_date: date, luxury_level: str = "standard") -> Tuple[float, Dict[str, float]]:
-    base = baseline_costs(dest, nights, start_date, luxury_level)
+    base, flight_info = baseline_costs(dest, nights, start_date, luxury_level)
     act_cost = 0.0
     for dp in itinerary:
         for slot in [dp.morning, dp.afternoon, dp.evening]:
@@ -1783,7 +1804,7 @@ if filter_confirmed:
     rows = []
     for d in DESTINATIONS:
         s = overall_score(d, budget, nights, prefs, start_date, end_date, luxury_level)
-        costs = baseline_costs(d, nights, start_date, luxury_level)
+        costs, flight_info = baseline_costs(d, nights, start_date, luxury_level)
         total = sum(costs.values())
         
         # Display luxury level info
@@ -1793,12 +1814,19 @@ if filter_confirmed:
         elif luxury_level == "luxury":
             luxury_suffix = " (Luxury)"
         
+        # Prepare flight info display
+        flight_details = ""
+        if flight_info.get("airline_name"):
+            flight_details = f" ({flight_info['airline_name']} {flight_info.get('aircraft_code', '')})"
+        elif flight_info.get("airline_code"):
+            flight_details = f" ({flight_info['airline_code']} {flight_info.get('aircraft_code', '')})"
+        
         rows.append({
             "City": f"{d['city']}, {d['country']}",
             "Score": s,
             f"Est. Total{luxury_suffix}": round(total, 2),
             "Hotel x nights": f"€{costs['hotel'] / nights:.0f} x {nights}",
-            "Flight": f"€{costs['flight']:.0f}",
+            "Flight": f"€{costs['flight']:.0f}{flight_details}",
             "CO₂ (kg)": d['co2_kg'],
             "Walkability": d['walkability'],
             "Safety": d['safety'],
@@ -1932,6 +1960,27 @@ if filter_confirmed:
 
     # Fit to budget with buffer for selected city
     fitted_plan, total_cost, breakdown = fit_to_budget(chosen, nights, plan, float(budget), start_date, luxury_level, buffer=float(buffer))
+    
+    # Get flight pricing info for the city
+    city = chosen.get("city", "")
+    country = chosen.get("country", "")
+    departure_date_str = start_date.strftime("%Y-%m-%d")
+    
+    flight_pricing_info = {}
+    if _HAS_FLIGHT_API and city and country:
+        try:
+            real_time_prices = get_real_time_flight_price(city, country, departure_date_str, luxury_level)
+            if real_time_prices:
+                flight_pricing_info = {
+                    "airline_code": real_time_prices.get("airline_code", ""),
+                    "airline_name": real_time_prices.get("airline_name", ""),
+                    "aircraft_code": real_time_prices.get("aircraft_code", ""),
+                    "data_source": real_time_prices.get("data_source", ""),
+                    "last_updated": real_time_prices.get("last_updated", ""),
+                    "route_info": real_time_prices.get("route_info", "")
+                }
+        except Exception as e:
+            print(f"Error getting flight info: {e}")
 
     st.subheader("Cost Overview")
     
@@ -2048,12 +2097,33 @@ if filter_confirmed:
     with col1:
         st.markdown("### 💰 Cost Breakdown")
         
-        # Flight cost with class info
+        # Flight cost with class info and airline details
         flight_info = flight_class_info[luxury_level]
+        
+        # Prepare airline display
+        airline_display = ""
+        if flight_pricing_info.get("airline_name"):
+            airline_display = f"<br><small style='color: #666;'>🏢 {flight_pricing_info['airline_name']}"
+            if flight_pricing_info.get("aircraft_code"):
+                airline_display += f" • {flight_pricing_info['aircraft_code']}"
+            airline_display += "</small>"
+        elif flight_pricing_info.get("airline_code"):
+            airline_display = f"<br><small style='color: #666;'>🏢 {flight_pricing_info['airline_code']}"
+            if flight_pricing_info.get("aircraft_code"):
+                airline_display += f" • {flight_pricing_info['aircraft_code']}"
+            airline_display += "</small>"
+        
+        # Simple update time display
+        update_time_display = ""
+        if flight_pricing_info.get("last_updated"):
+            update_time_display = f"<br><small style='color: #888; font-size: 12px;'>� Updated: {flight_pricing_info['last_updated']}</small>"
+        
         st.markdown(f"""
         <div style="background-color: #f0f2f6; padding: 15px; border-radius: 10px; margin: 10px 0;">
             <h4 style="margin: 0; color: #1f77b4;">{flight_info['icon']} Flight ({flight_info['class']})</h4>
             <h3 style="margin: 5px 0; color: #1f77b4;">€{breakdown['flight']:.0f}</h3>
+            {airline_display}
+            {update_time_display}
         </div>
         """, unsafe_allow_html=True)
         

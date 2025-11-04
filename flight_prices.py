@@ -5,7 +5,7 @@ import os
 import requests
 import time
 from datetime import datetime, timedelta
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any
 import json
 
 # Load environment configuration
@@ -171,7 +171,7 @@ class FlightPriceAPI:
         )
         
         if flight_data and 'data' in flight_data and flight_data['data']:
-            prices = self._parse_amadeus_response(flight_data, luxury_level)
+            prices = self._parse_amadeus_response(flight_data, luxury_level, city)
             
             # Cache the results
             self.price_cache[cache_key] = {
@@ -184,22 +184,35 @@ class FlightPriceAPI:
         # Fallback to static prices with real-time adjustment
         return self._get_fallback_prices(city, luxury_level)
     
-    def _parse_amadeus_response(self, flight_data: Dict, luxury_level: str) -> Dict[str, float]:
+    def _parse_amadeus_response(self, flight_data: Dict, luxury_level: str, destination_city: str = "") -> Dict[str, Any]:
         """Parse Amadeus API response and extract price information"""
         try:
             offers = flight_data.get('data', [])
             if not offers:
                 return {}
                 
-            # Get the cheapest offer
+            # Get the cheapest offer with airline info
             min_price = float('inf')
+            best_offer = None
             for offer in offers:
                 price = float(offer.get('price', {}).get('total', 0))
                 if price < min_price:
                     min_price = price
+                    best_offer = offer
                     
-            if min_price == float('inf'):
+            if min_price == float('inf') or not best_offer:
                 return {}
+            
+            # Extract airline information
+            airline_code = "Unknown"
+            aircraft_code = "Unknown"
+            try:
+                segments = best_offer.get('itineraries', [{}])[0].get('segments', [])
+                if segments:
+                    airline_code = segments[0].get('carrierCode', 'Unknown')
+                    aircraft_code = segments[0].get('aircraft', {}).get('code', 'Unknown')
+            except (IndexError, KeyError):
+                pass
             
             # Generate prices for all classes based on the base price
             base_price = min_price
@@ -207,14 +220,19 @@ class FlightPriceAPI:
             return {
                 "flight_price_base": round(base_price, 2),
                 "flight_price_premium": round(base_price * 2.8, 2),
-                "flight_price_luxury": round(base_price * 4.5, 2)
+                "flight_price_luxury": round(base_price * 4.5, 2),
+                "airline_code": airline_code,
+                "aircraft_code": aircraft_code,
+                "data_source": "Amadeus Real-time API",
+                "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "route_info": f"Paris CDG → {destination_city}"
             }
             
         except Exception as e:
             print(f"Error parsing Amadeus response: {e}")
             return {}
     
-    def _get_fallback_prices(self, city: str, luxury_level: str) -> Dict[str, float]:
+    def _get_fallback_prices(self, city: str, luxury_level: str) -> Dict[str, Any]:
         """
         Fallback to enhanced static prices with seasonal adjustments
         and market-based fluctuations
@@ -242,17 +260,108 @@ class FlightPriceAPI:
         import random
         fluctuation = random.uniform(0.85, 1.15)
         
+        # Select realistic airline and aircraft
+        airline_info = self._get_airline_info(city)
+        
         return {
             "flight_price_base": round(city_prices["base"] * fluctuation, 2),
             "flight_price_premium": round(city_prices["premium"] * fluctuation, 2),
-            "flight_price_luxury": round(city_prices["luxury"] * fluctuation, 2)
+            "flight_price_luxury": round(city_prices["luxury"] * fluctuation, 2),
+            "airline_code": airline_info["code"],
+            "airline_name": airline_info["name"],
+            "aircraft_code": airline_info["aircraft"],
+            "data_source": "Enhanced Simulation (Amadeus API credentials required for real-time data)",
+            "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "route_info": f"Paris CDG → {city}"
         }
+    
+    def _get_airline_info(self, destination_city: str) -> Dict[str, str]:
+        """Get realistic airline information for Paris to European destinations"""
+        # Airlines that actually operate from Paris CDG to European cities
+        paris_to_europe_airlines = {
+            # Major European carriers with Paris routes
+            "Barcelona": [
+                {"code": "AF", "name": "Air France", "aircraft": "A320"},
+                {"code": "VY", "name": "Vueling", "aircraft": "A320"},
+                {"code": "IB", "name": "Iberia", "aircraft": "A321"}
+            ],
+            "Budapest": [
+                {"code": "AF", "name": "Air France", "aircraft": "A319"},
+                {"code": "W6", "name": "Wizz Air", "aircraft": "A320"},
+                {"code": "LO", "name": "LOT Polish Airlines", "aircraft": "E195"}
+            ],
+            "Prague": [
+                {"code": "AF", "name": "Air France", "aircraft": "A318"},
+                {"code": "OK", "name": "Czech Airlines", "aircraft": "A319"},
+                {"code": "U2", "name": "easyJet", "aircraft": "A320"}
+            ],
+            "Amsterdam": [
+                {"code": "AF", "name": "Air France", "aircraft": "A321"},
+                {"code": "KL", "name": "KLM", "aircraft": "B737"},
+                {"code": "HV", "name": "Transavia", "aircraft": "B737"}
+            ],
+            "Vienna": [
+                {"code": "AF", "name": "Air France", "aircraft": "A320"},
+                {"code": "OS", "name": "Austrian Airlines", "aircraft": "A320"},
+                {"code": "U2", "name": "easyJet", "aircraft": "A319"}
+            ],
+            "Rome": [
+                {"code": "AF", "name": "Air France", "aircraft": "A321"},
+                {"code": "AZ", "name": "ITA Airways", "aircraft": "A320"},
+                {"code": "U2", "name": "easyJet", "aircraft": "A320"}
+            ],
+            "Berlin": [
+                {"code": "AF", "name": "Air France", "aircraft": "A319"},
+                {"code": "LH", "name": "Lufthansa", "aircraft": "A320"},
+                {"code": "U2", "name": "easyJet", "aircraft": "A319"}
+            ],
+            "Zurich": [
+                {"code": "AF", "name": "Air France", "aircraft": "A320"},
+                {"code": "LX", "name": "Swiss International", "aircraft": "A220"},
+                {"code": "LH", "name": "Lufthansa", "aircraft": "A320"}
+            ],
+            "Krakow": [
+                {"code": "AF", "name": "Air France", "aircraft": "E190"},
+                {"code": "LO", "name": "LOT Polish Airlines", "aircraft": "E195"},
+                {"code": "W6", "name": "Wizz Air", "aircraft": "A320"}
+            ],
+            "Copenhagen": [
+                {"code": "AF", "name": "Air France", "aircraft": "A319"},
+                {"code": "SK", "name": "SAS", "aircraft": "A320"},
+                {"code": "U2", "name": "easyJet", "aircraft": "A320"}
+            ],
+            "Dubrovnik": [
+                {"code": "AF", "name": "Air France", "aircraft": "A319"},
+                {"code": "OU", "name": "Croatia Airlines", "aircraft": "A319"},
+                {"code": "U2", "name": "easyJet", "aircraft": "A320"}
+            ],
+            "Edinburgh": [
+                {"code": "AF", "name": "Air France", "aircraft": "A318"},
+                {"code": "BA", "name": "British Airways", "aircraft": "A319"},
+                {"code": "U2", "name": "easyJet", "aircraft": "A319"}
+            ],
+            "Ljubljana": [
+                {"code": "AF", "name": "Air France", "aircraft": "E190"},
+                {"code": "JP", "name": "Adria Airways", "aircraft": "CRJ9"},
+                {"code": "LH", "name": "Lufthansa", "aircraft": "CRJ9"}
+            ]
+        }
+        
+        import random
+        # Get specific airlines for the destination, or use default European carriers
+        city_airlines = paris_to_europe_airlines.get(destination_city, [
+            {"code": "AF", "name": "Air France", "aircraft": "A320"},
+            {"code": "LH", "name": "Lufthansa", "aircraft": "A320"},
+            {"code": "U2", "name": "easyJet", "aircraft": "A319"}
+        ])
+        
+        return random.choice(city_airlines)
 
 # Global instance
 flight_api = FlightPriceAPI()
 
 def get_real_time_flight_price(city: str, country: str, departure_date: str, 
-                              luxury_level: str = "standard") -> Dict[str, float]:
+                              luxury_level: str = "standard") -> Dict[str, Any]:
     """
     Public function to get real-time flight prices
     

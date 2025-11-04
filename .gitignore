@@ -35,4 +35,4 @@ venv.bak/
 .idea/
 
 users.json.backup
-*.log
+*.log.env
